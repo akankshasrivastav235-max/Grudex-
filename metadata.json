@@ -1,0 +1,6 @@
+{
+  "name": "Grudex",
+  "description": "Bike Taxi App like Rapido with complete Hindi UI, live ride tracking, Parivar Tracking, and Aas-Paas Ki Dukane (Nearby Shops)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
