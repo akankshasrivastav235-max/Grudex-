@@ -9,16 +9,11 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: npm install
-        continue-on-error: true
-      - run: npm run build
-        continue-on-error: true
-      - name: Build
+      - name: Build APK
         run: |
-          if [ -f./gradlew ]; then chmod +x./gradlew &&./gradlew assembleDebug; else cd android && chmod +x./gradlew &&./gradlew assembleDebug; fi
+          chmod +x gradlew || true
+          chmod +x android/gradlew || true
+          if [ -f gradlew ]; then ./gradlew assembleDebug; else cd android &&./gradlew assembleDebug; fi
       - uses: actions/upload-artifact@v4
         with:
           name: Grudex-APK
