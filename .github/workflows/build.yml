@@ -9,12 +9,9 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: Build APK
-        run: |
-          chmod +x gradlew || true
-          chmod +x android/gradlew || true
-          if [ -f gradlew ]; then ./gradlew assembleDebug; else cd android &&./gradlew assembleDebug; fi
+      - uses: gradle/actions/setup-gradle@v3
+      - run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: Grudex-APK
-          path: '**/build/outputs/apk/debug/*.apk'
+          path: '**/build/outputs/apk/**/*.apk'
