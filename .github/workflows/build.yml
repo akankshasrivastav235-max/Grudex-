@@ -10,7 +10,19 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v3
-      - run: gradle assembleDebug
+
+      - name: Fix missing keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=US"
+          mkdir -p app
+          cp debug.keystore app/debug.keystore
+          cp debug.keystore app/build.gradle 2>/dev/null || true
+          # Remove custom signing if it exists
+          find. -name "*.gradle" -exec sed -i '/signingConfigs/,/}/d' {} \; || true
+          find. -name "*.gradle" -exec sed -i '/signingConfig/d' {} \; || true
+
+      - run: gradle assembleDebug --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: Grudex-APK
