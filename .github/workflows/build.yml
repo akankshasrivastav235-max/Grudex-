@@ -1,4 +1,4 @@
-name: Build APK
+name: Build AAB
 on: [push]
 jobs:
   build:
@@ -12,12 +12,15 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Build
+      - name: Build AAB
         run: |
+          PROJECT_DIR=$(find . -name "pubspec.yaml" | head -n 1 | xargs dirname)
+          echo "Project found at: $PROJECT_DIR"
+          cd $PROJECT_DIR
+          flutter clean
           flutter pub get
-          flutter build apk --debug
-      - name: Upload
-        uses: actions/upload-artifact@v4
+          flutter build appbundle --release
+      - uses: actions/upload-artifact@v4
         with:
-          name: apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: aab-file
+          path: "**/app-release.aab"
