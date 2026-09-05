@@ -12,21 +12,15 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
-      - name: Find Flutter project
-        run: |
-          ls -la
-          find . -name "pubspec.yaml"
-          echo "FLUTTER_DIR=$ (dirname $(find. -name pubspec.yaml | head -n 1))" >> $GITHUB_ENV
-
       - name: Build APK
         run: |
-          cd ${{ env.FLUTTER_DIR }}
+          DIR=$(dirname $(find . -name pubspec.yaml | head -n 1))
+          echo $DIR
+          cd $DIR
           flutter pub get
           flutter build apk --debug
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: ${{ env.FLUTTER_DIR }}/build/app/outputs/flutter-apk/app-debug.apk
+          path: "**/build/app/outputs/flutter-apk/app-debug.apk"
