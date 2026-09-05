@@ -24,6 +24,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,20 +46,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.GrudexBlack
+import com.example.ui.theme.GrudexBorder
 import com.example.ui.theme.GrudexLightGrey
 import com.example.ui.theme.GrudexYellow
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RatingDialog(
-    driverName: String = "Ramesh Kumar",
+    bookingId: String = "",
+    driverId: String = "",
+    driverName: String = "Vikram Singh Sarthi",
     fare: Int = 35,
     onDismiss: () -> Unit,
-    onSubmit: (rating: Int, feedback: String) -> Unit
+    onSubmit: (rating: Int, comment: String) -> Unit
 ) {
     var selectedStars by remember { mutableIntStateOf(5) }
-    var selectedTags by remember { mutableStateOf(setOf("Time par aaye", "Surakshit chalayi")) }
-    val availableTags = listOf(
+    var commentText by remember { mutableStateOf("") }
+    var selectedTags by remember { mutableStateOf(setOf<String>()) }
+
+    val starLabels = mapOf(
+        5 to "⭐⭐⭐⭐⭐ Bahut Badhiya!",
+        4 to "⭐⭐⭐⭐ Achha Tha",
+        3 to "⭐⭐⭐ Theek Tha",
+        2 to "⭐⭐ Sudhar Ki Zaroorat",
+        1 to "⭐ Anubhav Kharab Tha"
+    )
+
+    val quickCompliments = listOf(
         "Time par aaye",
         "Surakshit chalayi",
         "Helmet pehna tha",
@@ -67,49 +82,72 @@ fun RatingDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
+                .testTag("rating_dialog_card")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Header Badge
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = GrudexYellow.copy(alpha = 0.2f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = "⭐ RIDE COMPLETED",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = GrudexBlack,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+
+                // 2. Popup me likho: "Apni ride ko rate karein"
                 Text(
-                    text = "Ride Kaisi Rahi?",
+                    text = "Apni ride ko rate karein",
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GrudexBlack
+                    fontWeight = FontWeight.ExtraBold,
+                    color = GrudexBlack,
+                    textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "$driverName ke sath safar kaisa laga?",
+                    text = "$driverName • ₹$fare",
                     fontSize = 14.sp,
                     color = Color.Gray,
+                    fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-                // Star Rating
+                // 3. 5 Stars dikhao, user tap karke star select kar sake
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("star_rating_row"),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     for (i in 1..5) {
                         val isFilled = i <= selectedStars
                         Icon(
                             imageVector = if (isFilled) Icons.Default.Star else Icons.Outlined.StarBorder,
                             contentDescription = "$i Sitara",
-                            tint = if (isFilled) GrudexYellow else Color.LightGray,
+                            tint = if (isFilled) GrudexYellow else Color(0xFFD0D5DD),
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(46.dp)
                                 .clickable { selectedStars = i }
                                 .padding(4.dp)
                                 .testTag("star_rating_$i")
@@ -117,56 +155,88 @@ fun RatingDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Tag Feedback Chips
                 Text(
-                    text = "Driver ki tareef karein:",
+                    text = starLabels[selectedStars] ?: "",
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = GrudexBlack,
-                    modifier = Modifier.align(Alignment.Start)
+                    fontWeight = FontWeight.Bold,
+                    color = if (selectedStars >= 4) Color(0xFF00875A) else if (selectedStars == 3) Color(0xFFD97706) else Color(0xFFDE350B),
+                    modifier = Modifier.padding(top = 4.dp)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
+                // Quick compliment chips
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    availableTags.forEach { tag ->
+                    quickCompliments.forEach { tag ->
                         val isSelected = selectedTags.contains(tag)
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(16.dp),
                             color = if (isSelected) GrudexYellow else GrudexLightGrey,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(16.dp))
                                 .clickable {
-                                    selectedTags = if (isSelected) {
-                                        selectedTags - tag
+                                    if (isSelected) {
+                                        selectedTags = selectedTags - tag
                                     } else {
-                                        selectedTags + tag
+                                        selectedTags = selectedTags + tag
+                                        if (!commentText.contains(tag)) {
+                                            commentText = if (commentText.isBlank()) tag else "$commentText, $tag"
+                                        }
                                     }
                                 }
                         ) {
                             Text(
                                 text = tag,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 color = GrudexBlack,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Submit Button
+                // 4. Neeche ek chhota sa comment box - "Kuch kehna chahenge?"
+                OutlinedTextField(
+                    value = commentText,
+                    onValueChange = { commentText = it },
+                    placeholder = {
+                        Text(
+                            text = "Kuch kehna chahenge?",
+                            color = Color.Gray,
+                            fontSize = 13.sp
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(84.dp)
+                        .testTag("rating_comment_box"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GrudexYellow,
+                        unfocusedBorderColor = GrudexBorder,
+                        focusedContainerColor = Color(0xFFFAFAFA),
+                        unfocusedContainerColor = Color(0xFFFAFAFA),
+                        cursorColor = GrudexBlack
+                    ),
+                    maxLines = 3
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // 5. Submit button pe click karte hi rating Firebase me save ho jaye
                 Button(
                     onClick = {
-                        onSubmit(selectedStars, selectedTags.joinToString(", "))
+                        val finalComment = commentText.trim().ifBlank {
+                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(", ") else "Bahut accha safar!"
+                        }
+                        onSubmit(selectedStars, finalComment)
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = GrudexYellow,
@@ -175,17 +245,17 @@ fun RatingDialog(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(48.dp)
                         .testTag("submit_rating_button")
                 ) {
                     Text(
-                        text = "Rating Bhejein",
-                        fontSize = 16.sp,
+                        text = "Rating Submit Karein",
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 TextButton(
                     onClick = onDismiss,
@@ -193,7 +263,7 @@ fun RatingDialog(
                 ) {
                     Text(
                         text = "Abhi Nahi (Skip)",
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         color = Color.Gray
                     )
                 }

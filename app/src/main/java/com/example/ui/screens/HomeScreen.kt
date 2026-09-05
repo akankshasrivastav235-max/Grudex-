@@ -32,8 +32,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -60,9 +62,11 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +79,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,6 +97,7 @@ import com.example.model.VehicleOption
 import com.example.ui.components.GrudexMapCanvas
 import com.example.ui.components.NearbyShopsCarousel
 import com.example.ui.components.RouteShopsCategoryBar
+import com.example.ui.components.SearchDestinationModal
 import com.example.ui.components.SelectedShopDetailCard
 import com.example.ui.theme.GrudexBlack
 import com.example.ui.theme.GrudexBorder
@@ -117,7 +124,8 @@ fun HomeScreen(
     onShopSelected: (NearbyShop) -> Unit = {},
     onDismissSelectedShop: () -> Unit = {},
     onBookRideToShop: (NearbyShop) -> Unit = {},
-    onOpenKirayaSettings: () -> Unit = {}
+    onOpenKirayaSettings: () -> Unit = {},
+    onSwitchToDriverMode: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -149,6 +157,30 @@ fun HomeScreen(
                 distanceKm = 2.1f
             )
         )
+    }
+
+    // Controlled search query with 300ms debounce for the home drop location search box
+    var dropSearchQuery by rememberSaveable { mutableStateOf("") }
+    var debouncedDropQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(dropSearchQuery) {
+        if (dropSearchQuery.isBlank()) {
+            debouncedDropQuery = ""
+        } else {
+            delay(300L)
+            debouncedDropQuery = dropSearchQuery.trim()
+        }
+    }
+
+    val filteredPopularLocations = remember(debouncedDropQuery, popularLocations) {
+        if (debouncedDropQuery.isBlank()) {
+            popularLocations.take(3)
+        } else {
+            popularLocations.filter {
+                it.titleHindi.contains(debouncedDropQuery, ignoreCase = true) ||
+                        it.subtitleHindi.contains(debouncedDropQuery, ignoreCase = true)
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -255,13 +287,37 @@ fun HomeScreen(
                         .testTag("home_kiraya_admin_button")
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "⚙️ Kiraya",
                             color = GrudexYellow,
                             fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Driver App (Captain Mode) Quick Switch Button
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = GrudexYellow,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .clickable { onSwitchToDriverMode() }
+                        .testTag("home_switch_to_driver_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🛵 Captain",
+                            color = GrudexBlack,
+                            fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp
                         )
                     }
@@ -369,33 +425,58 @@ fun HomeScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // Search Box Field
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = GrudexLightGrey,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onOpenSearch() }
-                                    .testTag("search_destination_box")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.Search,
-                                        contentDescription = null,
-                                        tint = GrudexDark
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
+                            // Drop Location Search TextInput with 300ms debounce
+                            OutlinedTextField(
+                                value = dropSearchQuery,
+                                onValueChange = { dropSearchQuery = it },
+                                placeholder = {
                                     Text(
                                         text = "Apna drop sthal khojein...",
                                         fontSize = 15.sp,
                                         color = Color.Gray,
                                         fontWeight = FontWeight.Medium
                                     )
-                                }
-                            }
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = "Search",
+                                        tint = GrudexDark
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (dropSearchQuery.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = {
+                                                dropSearchQuery = ""
+                                                debouncedDropQuery = ""
+                                            },
+                                            modifier = Modifier.testTag("clear_home_drop_search_button")
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Clear,
+                                                contentDescription = "Saaf karein",
+                                                tint = Color.Gray
+                                            )
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = GrudexLightGrey,
+                                    unfocusedContainerColor = GrudexLightGrey,
+                                    focusedBorderColor = GrudexYellow,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    cursorColor = GrudexBlack,
+                                    focusedTextColor = GrudexBlack,
+                                    unfocusedTextColor = GrudexBlack
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("search_destination_box")
+                            )
 
                             Spacer(modifier = Modifier.height(16.dp))
 
@@ -421,9 +502,9 @@ fun HomeScreen(
 
                             Spacer(modifier = Modifier.height(18.dp))
 
-                            // Popular / Quick Destinations in Hindi
+                            // Popular / Quick Destinations in Hindi (Filtered by search query)
                             Text(
-                                text = "Lokpriya Jagayein (Quick Destination)",
+                                text = if (debouncedDropQuery.isBlank()) "Lokpriya Jagayein (Quick Destination)" else "Khoj Parinaam (Lokpriya Jagayein):",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = GrudexBlack
@@ -431,49 +512,60 @@ fun HomeScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            popularLocations.take(3).forEach { loc ->
-                                Row(
+                            if (filteredPopularLocations.isEmpty()) {
+                                Text(
+                                    text = "Koi sthal nahi mila \"$debouncedDropQuery\"",
+                                    fontSize = 13.sp,
+                                    color = Color.Gray,
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onDestinationSelected(loc) }
-                                        .padding(vertical = 10.dp)
-                                        .testTag("quick_location_${loc.id}"),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
+                                        .padding(vertical = 8.dp)
+                                        .testTag("empty_home_search_results")
+                                )
+                            } else {
+                                filteredPopularLocations.forEach { loc ->
+                                    Row(
                                         modifier = Modifier
-                                            .size(36.dp)
-                                            .background(GrudexYellow.copy(alpha = 0.25f), CircleShape),
-                                        contentAlignment = Alignment.Center
+                                            .fillMaxWidth()
+                                            .clickable { onDestinationSelected(loc) }
+                                            .padding(vertical = 10.dp)
+                                            .testTag("quick_location_${loc.id}"),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            Icons.Default.LocationOn,
-                                            contentDescription = null,
-                                            tint = GrudexBlack,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .background(GrudexYellow.copy(alpha = 0.25f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.LocationOn,
+                                                contentDescription = null,
+                                                tint = GrudexBlack,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = loc.titleHindi,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = GrudexBlack
+                                            )
+                                            Text(
+                                                text = loc.subtitleHindi,
+                                                fontSize = 12.sp,
+                                                color = Color.Gray,
+                                                maxLines = 1
+                                            )
+                                        }
                                         Text(
-                                            text = loc.titleHindi,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = GrudexBlack
-                                        )
-                                        Text(
-                                            text = loc.subtitleHindi,
+                                            text = "${loc.distanceKm} km",
                                             fontSize = 12.sp,
-                                            color = Color.Gray,
-                                            maxLines = 1
+                                            fontWeight = FontWeight.Bold,
+                                            color = GrudexDark
                                         )
                                     }
-                                    Text(
-                                        text = "${loc.distanceKm} km",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GrudexDark
-                                    )
                                 }
                             }
                         }
@@ -1268,265 +1360,3 @@ private fun LiveRideTrackingCard(
     }
 }
 
-@Composable
-private fun SearchDestinationModal(
-    popularLocations: List<LocationItem>,
-    selectedCategory: ShopCategory?,
-    nearbyShops: List<NearbyShop>,
-    onSelectLocation: (LocationItem) -> Unit,
-    onCategoryClick: (ShopCategory) -> Unit,
-    onBookRideToShop: (NearbyShop) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-
-    val filteredLocations = remember(searchQuery) {
-        if (searchQuery.isBlank()) {
-            popularLocations
-        } else {
-            popularLocations.filter {
-                it.titleHindi.contains(searchQuery, ignoreCase = true) ||
-                        it.subtitleHindi.contains(searchQuery, ignoreCase = true)
-            }
-        }
-    }
-
-    val filteredShops = remember(searchQuery, nearbyShops) {
-        if (searchQuery.isBlank()) {
-            nearbyShops
-        } else {
-            nearbyShops.filter {
-                it.nameHindi.contains(searchQuery, ignoreCase = true) ||
-                        it.specialtyHindi.contains(searchQuery, ignoreCase = true) ||
-                        it.addressHindi.contains(searchQuery, ignoreCase = true)
-            }
-        }
-    }
-
-    Surface(
-        color = Color.White,
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("search_destination_modal")
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.testTag("close_search_button")
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Band Karein")
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Kahan Jana Hai?",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GrudexBlack
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Gantavya ya dukaan khojein") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = GrudexDark) },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = GrudexYellow,
-                    focusedLabelColor = GrudexBlack
-                ),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("search_query_input")
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // "Raste me kya hai?" Category Filter Row
-            RouteShopsCategoryBar(
-                selectedCategory = selectedCategory,
-                onCategoryClick = onCategoryClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("modal_route_shops_category_bar")
-            )
-
-            if (filteredShops.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "${selectedCategory?.emoji ?: "📍"} Aas-Paas Ki Dukane (1-2 km ke andar):",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GrudexBlack
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = false)
-                ) {
-                    items(filteredShops) { shop ->
-                        Card(
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = GrudexLightGrey),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .testTag("modal_shop_item_${shop.id}")
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = GrudexYellow,
-                                    modifier = Modifier.size(38.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(text = shop.category.emoji, fontSize = 18.sp)
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = shop.nameHindi,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GrudexBlack,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = shop.distanceTextHindi,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF1976D2)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "⭐ ${shop.rating}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = GrudexBlack
-                                        )
-                                    }
-                                    Text(
-                                        text = shop.specialtyHindi,
-                                        fontSize = 10.sp,
-                                        color = Color.Gray,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(
-                                    onClick = {
-                                        onBookRideToShop(shop)
-                                        onDismiss()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = GrudexYellow,
-                                        contentColor = GrudexBlack
-                                    ),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                    modifier = Modifier.testTag("modal_book_shop_${shop.id}")
-                                ) {
-                                    Text(
-                                        text = "Wahan Chalo",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = "Lokpriya / Suvidhajanak Sthal:",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
-                items(filteredLocations) { loc ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectLocation(loc) }
-                            .padding(vertical = 12.dp)
-                            .testTag("search_result_${loc.id}"),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(GrudexLightGrey, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = GrudexBlack,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = loc.titleHindi,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = GrudexBlack
-                            )
-                            Text(
-                                text = loc.subtitleHindi,
-                                fontSize = 12.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "${loc.distanceKm} km",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = GrudexDark
-                            )
-                            val estMin = maxOf(30, (20 + (loc.distanceKm - 1f).coerceAtLeast(0f) * 8).toInt() - 5)
-                            val estMax = estMin + 10
-                            Text(
-                                text = "Anumanit ~₹$estMin-$estMax",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = GrudexGreen
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

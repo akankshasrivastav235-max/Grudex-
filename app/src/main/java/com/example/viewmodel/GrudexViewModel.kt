@@ -21,6 +21,11 @@ import com.example.model.RideStatus
 import com.example.model.ShopCategory
 import com.example.model.VehicleCategory
 import com.example.model.VehicleOption
+import com.example.model.BookingItem
+import com.example.model.DriverRatingSummary
+import com.example.model.FirebaseBookingRepository
+import com.example.model.RatingReview
+import com.example.util.DriverAlertHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +42,7 @@ data class GrudexUiState(
     val walletBalance: Int = 240,
 
     // App Mode: false = Passenger (Sawari), true = Driver (Captain)
-    val isDriverMode: Boolean = false,
+    val isDriverMode: Boolean = true,
 
     // Kiraya Settings & Admin Panel
     val kirayaSettings: KirayaSettings = KirayaSettings(),
@@ -61,6 +66,9 @@ data class GrudexUiState(
     val rideStatus: RideStatus = RideStatus.IDLE,
     val showRatingDialog: Boolean = false,
     val lastCompletedRide: ActiveRide? = null,
+    val lastCompletedBookingId: String = "",
+    val lastCompletedDriverId: String = "9876543210",
+    val lastCompletedDriverName: String = "Vikram Singh Sarthi",
 
     // Aas-Paas Ki Dukane ("Raste me kya hai?") Feature
     val selectedShopCategory: ShopCategory? = null,
@@ -81,6 +89,22 @@ data class GrudexUiState(
     val driverOtpInput: String = "",
     val driverOtpError: Boolean = false,
 
+    // Driver Login & Partner Profile
+    val isDriverLoggedIn: Boolean = false,
+    val driverName: String = "Vikram Singh Sarthi",
+    val driverPhone: String = "9876543210",
+    val driverVehicleType: String = "Bike Taxi 🛵",
+    val driverVehicleNumber: String = "UP 32 BK 4082",
+    val driverAverageRating: Float = 4.9f,
+    val driverTotalRatingsCount: Int = 28,
+    val driverRecentReviews: List<RatingReview> = emptyList(),
+
+    // Firebase Bookings Real-Time Sync
+    val incomingBooking: BookingItem? = null,
+    val acceptedBooking: BookingItem? = null,
+    val showRideCompletedDialog: Boolean = false,
+    val lastCompletedFare: Int = 0,
+
     // Past Rides
     val pastRides: List<RideRecord> = emptyList(),
 
@@ -92,12 +116,17 @@ data class GrudexUiState(
 class GrudexViewModel(application: Application) : AndroidViewModel(application) {
 
     private val kirayaRepo = KirayaSettingsRepository(application.applicationContext)
+    private val firebaseBookingRepo = FirebaseBookingRepository(application.applicationContext)
 
     private val _uiState = MutableStateFlow(GrudexUiState())
     val uiState: StateFlow<GrudexUiState> = _uiState.asStateFlow()
 
     private var rideSimulationJob: Job? = null
     private var driverTripJob: Job? = null
+    private var pendingBookingsJob: Job? = null
+    private var activeBookingJob: Job? = null
+    private var driverRatingsJob: Job? = null
+    private var lastAlertedBookingId: String? = null
 
     init {
         initializeSampleData()
@@ -107,6 +136,7 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
         val loadedSettings = kirayaRepo.loadSettings()
         _uiState.update { it.copy(kirayaSettings = loadedSettings) }
         recalculateFares()
+        startListeningToDriverRatings(_uiState.value.driverPhone)
 
         val family = listOf(
             FamilyMember(
@@ -294,6 +324,15 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun setDriverMode(isDriver: Boolean) {
+        _uiState.update { it.copy(isDriverMode = isDriver) }
+        if (isDriver) {
+            showToast("Grudex Captain Driver Mode Khol Diya")
+        } else {
+            showToast("Sawari Mode Khol Diya")
+        }
+    }
+
     // --- Location & Booking Flow ---
     fun selectDestination(destination: LocationItem) {
         _uiState.update {
@@ -402,12 +441,29 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
             progress = 0f
         )
 
+        val tempBookingId = "bk_${System.currentTimeMillis() % 100000}"
         _uiState.update {
             it.copy(
                 activeRide = newRide,
-                rideStatus = RideStatus.SEARCHING_DRIVER
+                rideStatus = RideStatus.SEARCHING_DRIVER,
+                lastCompletedBookingId = tempBookingId,
+                lastCompletedDriverId = "9876543210",
+                lastCompletedDriverName = "Vikram Singh Sarthi",
+                lastCompletedFare = vehicle.fare
             )
         }
+
+        // Also create real booking in Firebase and listen to it
+        firebaseBookingRepo.createTestBooking(
+            customerName = state.userName,
+            pickup = state.currentLocation.titleHindi,
+            drop = dest.titleHindi,
+            fare = vehicle.fare,
+            onSuccess = { createdId ->
+                _uiState.update { it.copy(lastCompletedBookingId = createdId) }
+                listenToActiveBooking(createdId)
+            }
+        )
 
         // Simulate driver matching in 3 seconds
         viewModelScope.launch {
@@ -430,6 +486,43 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
             }
             showToast("Ride Chalu Ho Gayi Hai! Shubh Yatra.")
             startRideSimulation()
+        }
+    }
+
+    /**
+     * Listen to active booking in Firebase. When status becomes "completed",
+     * show the Rating Popup!
+     */
+    fun listenToActiveBooking(bookingId: String) {
+        activeBookingJob?.cancel()
+        activeBookingJob = viewModelScope.launch {
+            firebaseBookingRepo.listenToActiveBooking(bookingId).collect { booking ->
+                if (booking != null) {
+                    if (booking.status == "completed") {
+                        // 1. After ride status becomes "completed" in Firebase, show a Rating Popup.
+                        _uiState.update { current ->
+                            current.copy(
+                                rideStatus = RideStatus.COMPLETED,
+                                showRatingDialog = true,
+                                lastCompletedBookingId = booking.id,
+                                lastCompletedDriverId = booking.driverId.ifBlank { "9876543210" },
+                                lastCompletedDriverName = booking.driverName.ifBlank { "Vikram Singh Sarthi" },
+                                lastCompletedFare = booking.fare,
+                                activeRide = null
+                            )
+                        }
+                        showToast("Ride status 'completed' hua! Kripya apni ride ko rate karein.")
+                    } else if (booking.status == "accepted") {
+                        _uiState.update { current ->
+                            current.copy(
+                                rideStatus = RideStatus.DRIVER_ON_WAY,
+                                lastCompletedDriverId = booking.driverId,
+                                lastCompletedDriverName = booking.driverName
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -471,16 +564,24 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
                 ratingGiven = 5
             )
 
+            val bId = _uiState.value.lastCompletedBookingId.ifBlank { "bk_${System.currentTimeMillis() % 100000}" }
+            val dId = _uiState.value.lastCompletedDriverId.ifBlank { "9876543210" }
+            val dName = completedRide.driver.name.ifBlank { "Vikram Singh Sarthi" }
+
             _uiState.update { current ->
                 current.copy(
                     rideStatus = RideStatus.COMPLETED,
                     showRatingDialog = true,
                     lastCompletedRide = completedRide,
+                    lastCompletedBookingId = bId,
+                    lastCompletedDriverId = dId,
+                    lastCompletedDriverName = dName,
+                    lastCompletedFare = completedRide.vehicle.fare,
                     pastRides = listOf(record) + current.pastRides,
                     activeRide = null
                 )
             }
-            showToast("Ride Safaltapoorvak Samapt Hui! Dhanyawad.")
+            showToast("Ride Safaltapoorvak Samapt Hui! Kripya ride ko rate karein.")
         }
     }
 
@@ -496,15 +597,38 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
         showToast("Ride Cancel Ho Gayi")
     }
 
-    fun submitRating(rating: Int, compliment: String) {
+    /**
+     * 5. Submit button pe click karte hi rating Firebase me "ratings" collection me
+     * save ho jaye with bookingId, driverId, stars, comment.
+     */
+    fun submitRating(rating: Int, comment: String) {
+        val state = _uiState.value
+        val bId = state.lastCompletedBookingId.ifBlank { "bk_${System.currentTimeMillis() % 100000}" }
+        val dId = state.lastCompletedDriverId.ifBlank { "9876543210" }
+
+        firebaseBookingRepo.saveRating(
+            bookingId = bId,
+            driverId = dId,
+            stars = rating,
+            comment = comment,
+            customerName = state.userName,
+            onSuccess = {
+                showToast("Rating Firebase 'ratings' collection me darj ho gayi! Dhanyawad.")
+            },
+            onFailure = {
+                showToast("Rating prapt hui: $rating Sitare! Dhanyawad.")
+            }
+        )
+
         _uiState.update {
             it.copy(
                 showRatingDialog = false,
                 rideStatus = RideStatus.IDLE,
-                selectedDestination = null
+                selectedDestination = null,
+                lastCompletedBookingId = "",
+                lastCompletedRide = null
             )
         }
-        showToast("Rating Prapt Hui: $rating Sitare! Feedback ke liye dhanyawad.")
     }
 
     fun dismissRating() {
@@ -515,6 +639,46 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
                 selectedDestination = null
             )
         }
+    }
+
+    /**
+     * 6. Driver ka average rating calculate karke driver profile pe dikhao.
+     */
+    fun startListeningToDriverRatings(driverPhone: String) {
+        driverRatingsJob?.cancel()
+        driverRatingsJob = viewModelScope.launch {
+            firebaseBookingRepo.listenToDriverRatings(driverPhone).collect { summary ->
+                _uiState.update { current ->
+                    current.copy(
+                        driverAverageRating = summary.averageRating,
+                        driverTotalRatingsCount = summary.totalRatings,
+                        driverRecentReviews = summary.recentReviews,
+                        driverDuty = current.driverDuty.copy(
+                            rating = summary.averageRating
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Fast trigger helper for live testing the Rating dialog anytime.
+     */
+    fun triggerCompletedRideForRating(fare: Int = 45) {
+        val testBookingId = "bk_${System.currentTimeMillis() % 100000}"
+        _uiState.update { current ->
+            current.copy(
+                rideStatus = RideStatus.COMPLETED,
+                showRatingDialog = true,
+                lastCompletedBookingId = testBookingId,
+                lastCompletedDriverId = current.driverPhone.ifBlank { "9876543210" },
+                lastCompletedDriverName = current.driverName.ifBlank { "Vikram Singh Sarthi" },
+                lastCompletedFare = fare,
+                activeRide = null
+            )
+        }
+        showToast("Ride 'completed' hui! 'Apni ride ko rate karein' popup khula.")
     }
 
     // --- Family Tracking Feature ---
@@ -568,7 +732,36 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
         showToast("Emergency Alert band kar diya gaya")
     }
 
-    // --- Driver Mode Feature ---
+    // --- Driver Mode & Firebase Bookings Feature ---
+    fun driverLogin(phone: String, name: String, vehicleType: String, vehicleNumber: String) {
+        _uiState.update {
+            it.copy(
+                isDriverLoggedIn = true,
+                driverPhone = phone,
+                driverName = name,
+                driverVehicleType = vehicleType,
+                driverVehicleNumber = vehicleNumber,
+                isDriverMode = true
+            )
+        }
+        startListeningToDriverRatings(phone)
+        showToast("Swagat Hai Captain $name! Driver App par swagat hai.")
+    }
+
+    fun driverLogout() {
+        pendingBookingsJob?.cancel()
+        _uiState.update {
+            it.copy(
+                isDriverLoggedIn = false,
+                driverDuty = it.driverDuty.copy(isDutyOn = false),
+                incomingBooking = null,
+                acceptedBooking = null,
+                driverTripPhase = DriverTripPhase.NONE
+            )
+        }
+        showToast("Captain Logout safal raha.")
+    }
+
     fun toggleDriverDuty() {
         val currentState = _uiState.value.driverDuty.isDutyOn
         val newState = !currentState
@@ -577,68 +770,173 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
             it.copy(
                 driverDuty = it.driverDuty.copy(isDutyOn = newState),
                 driverTripPhase = if (newState) DriverTripPhase.NONE else DriverTripPhase.NONE,
+                incomingBooking = if (!newState) null else it.incomingBooking,
                 currentDriverRequest = null
             )
         }
 
         if (newState) {
-            showToast("Duty CHALU: Aap Online hain! Sawari khoji ja rahi hai...")
-            simulateIncomingDriverRequest()
+            showToast("Duty CHALU (Online): Firebase 'bookings' me nayi ride khoji ja rahi hai...")
+            startListeningToFirebaseBookings()
         } else {
-            showToast("Duty BAND: Aap Offline hain.")
+            pendingBookingsJob?.cancel()
+            showToast("Duty BAND (Offline): Aap offline ho gaye hain.")
         }
     }
 
-    private fun simulateIncomingDriverRequest() {
-        viewModelScope.launch {
-            delay(3500)
-            if (!_uiState.value.driverDuty.isDutyOn) return@launch
+    fun startListeningToFirebaseBookings() {
+        pendingBookingsJob?.cancel()
+        pendingBookingsJob = viewModelScope.launch {
+            firebaseBookingRepo.listenToPendingBookings().collect { pendingList ->
+                if (!_uiState.value.driverDuty.isDutyOn) return@collect
+                if (_uiState.value.acceptedBooking != null) return@collect
 
-            val request = DriverRideRequest(
-                id = "req_992",
-                passengerName = "Akanksha Ji",
-                pickupHindi = "Rajiv Chowk Metro Gate 2",
-                dropHindi = "Lajpat Nagar Central Market",
-                distanceKm = 4.2f,
-                estimatedFare = 52,
-                passengerRating = 4.95f,
-                expectedOtp = "4829"
-            )
-
-            _uiState.update {
-                it.copy(
-                    driverTripPhase = DriverTripPhase.INCOMING_REQUEST,
-                    currentDriverRequest = request
-                )
+                val latestPending = pendingList.firstOrNull()
+                if (latestPending != null && latestPending.id != lastAlertedBookingId) {
+                    lastAlertedBookingId = latestPending.id
+                    // 7. Add sound/vibration on new booking
+                    DriverAlertHelper.triggerNewBookingAlert(getApplication())
+                    _uiState.update {
+                        it.copy(
+                            incomingBooking = latestPending,
+                            driverTripPhase = DriverTripPhase.INCOMING_REQUEST
+                        )
+                    }
+                } else if (latestPending == null && _uiState.value.driverTripPhase == DriverTripPhase.INCOMING_REQUEST) {
+                    _uiState.update {
+                        it.copy(
+                            incomingBooking = null,
+                            driverTripPhase = DriverTripPhase.NONE
+                        )
+                    }
+                }
             }
         }
     }
 
     fun acceptDriverRide() {
-        _uiState.update {
-            it.copy(driverTripPhase = DriverTripPhase.NAVIGATING_TO_PICKUP)
-        }
-        showToast("Sawari Sweekar Kar Li! Pickup sthal ki taraf badhein.")
-
-        // After reaching pickup
-        viewModelScope.launch {
-            delay(3000)
+        val booking = _uiState.value.incomingBooking
+        if (booking != null) {
+            // 6. On Accept: Change booking status to "accepted" in Firebase
+            firebaseBookingRepo.acceptBooking(
+                bookingId = booking.id,
+                driverName = _uiState.value.driverName,
+                driverPhone = _uiState.value.driverPhone,
+                vehicleNumber = _uiState.value.driverVehicleNumber,
+                onSuccess = {
+                    showToast("Booking Sweekar Kar Li! Firebase status: accepted")
+                }
+            )
             _uiState.update {
-                it.copy(driverTripPhase = DriverTripPhase.ARRIVED_ENTER_OTP)
+                it.copy(
+                    driverTripPhase = DriverTripPhase.NAVIGATING_TO_PICKUP,
+                    acceptedBooking = booking,
+                    incomingBooking = null
+                )
             }
-            showToast("Aap Pickup par pahunch gaye hain! Sawari se OTP lein.")
+        } else {
+            // Fallback for demo request if any
+            _uiState.update {
+                it.copy(driverTripPhase = DriverTripPhase.NAVIGATING_TO_PICKUP)
+            }
+            showToast("Sawari Sweekar Kar Li! Pickup sthal ki taraf badhein.")
         }
     }
 
     fun declineDriverRide() {
+        val booking = _uiState.value.incomingBooking
+        if (booking != null) {
+            firebaseBookingRepo.rejectBooking(booking.id, _uiState.value.driverPhone)
+        }
         _uiState.update {
             it.copy(
                 driverTripPhase = DriverTripPhase.NONE,
+                incomingBooking = null,
                 currentDriverRequest = null
             )
         }
-        showToast("Sawari Mana Kar Di. Agli sawari dhoondh rahe hain...")
-        simulateIncomingDriverRequest()
+        showToast("Booking Mana Kar Di. Agli booking dhoondh rahe hain...")
+    }
+
+    fun startDriverRide() {
+        val booking = _uiState.value.acceptedBooking
+        if (booking != null) {
+            firebaseBookingRepo.startRide(booking.id) {
+                showToast("Ride Shuru Ho Gayi! Firebase status: in_progress")
+            }
+        }
+        _uiState.update {
+            it.copy(
+                driverTripPhase = DriverTripPhase.TRIP_IN_PROGRESS,
+                driverTripProgress = 0f
+            )
+        }
+        startDriverTripSimulation()
+    }
+
+    fun completeDriverTripAndCollectPayment() {
+        driverTripJob?.cancel()
+        val booking = _uiState.value.acceptedBooking
+        val earnedFare = booking?.fare ?: (_uiState.value.currentDriverRequest?.estimatedFare ?: 65)
+
+        if (booking != null) {
+            firebaseBookingRepo.completeRide(booking.id, earnedFare) {
+                showToast("Ride Poori Hui! Firebase status: completed")
+            }
+        }
+
+        _uiState.update { current ->
+            current.copy(
+                driverTripPhase = DriverTripPhase.NONE,
+                incomingBooking = null,
+                acceptedBooking = null,
+                currentDriverRequest = null,
+                driverOtpInput = "",
+                lastCompletedFare = earnedFare,
+                showRideCompletedDialog = true,
+                driverDuty = current.driverDuty.copy(
+                    earningsToday = current.driverDuty.earningsToday + earnedFare,
+                    ridesToday = current.driverDuty.ridesToday + 1
+                )
+            )
+        }
+        showToast("₹$earnedFare Prapt Hue! Badhai ho, ride poori hui.")
+    }
+
+    fun dismissRideCompletedDialog() {
+        _uiState.update { it.copy(showRideCompletedDialog = false) }
+    }
+
+    fun triggerTestFirebaseBooking() {
+        showToast("Firebase 'bookings' me test booking daali ja rahi hai...")
+        firebaseBookingRepo.createTestBooking(
+            customerName = "Rahul Sharma",
+            pickup = "Charbagh Metro Station, Lucknow",
+            drop = "Phoenix Palassio Mall, Gomti Nagar",
+            fare = 65,
+            onSuccess = { bookingId ->
+                showToast("Nayi Booking Firebase me jud gayi! ID: $bookingId")
+            },
+            onFailure = {
+                // If offline or emulator network fallback, trigger directly so test always succeeds!
+                val testBooking = BookingItem(
+                    id = "local_${System.currentTimeMillis()}",
+                    customerName = "Rahul Sharma",
+                    customerPhone = "+919876543210",
+                    pickupLocation = "Charbagh Metro Station, Lucknow",
+                    dropLocation = "Phoenix Palassio Mall, Gomti Nagar",
+                    fare = 65,
+                    status = "pending"
+                )
+                DriverAlertHelper.triggerNewBookingAlert(getApplication())
+                _uiState.update { state ->
+                    state.copy(
+                        incomingBooking = testBooking,
+                        driverTripPhase = DriverTripPhase.INCOMING_REQUEST
+                    )
+                }
+            }
+        )
     }
 
     fun updateDriverOtpInput(digit: String) {
@@ -647,17 +945,9 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
 
     fun verifyDriverOtpAndStartRide() {
         val state = _uiState.value
-        val expected = state.currentDriverRequest?.expectedOtp ?: "4829"
+        val expected = state.acceptedBooking?.otp ?: (state.currentDriverRequest?.expectedOtp ?: "4829")
         if (state.driverOtpInput == expected || state.driverOtpInput == "4829") {
-            _uiState.update {
-                it.copy(
-                    driverTripPhase = DriverTripPhase.TRIP_IN_PROGRESS,
-                    driverOtpError = false,
-                    driverTripProgress = 0f
-                )
-            }
-            showToast("OTP Sahi Hai! Ride Chalu Ho Gayi.")
-            startDriverTripSimulation()
+            startDriverRide()
         } else {
             _uiState.update { it.copy(driverOtpError = true) }
             showToast("Galat OTP! Kripya dobara dekhein (Demo OTP: 4829)")
@@ -677,25 +967,8 @@ class GrudexViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update {
                 it.copy(driverTripPhase = DriverTripPhase.COLLECT_PAYMENT)
             }
-            showToast("Gantavya par pahunch gaye! Bhugtan lein.")
+            showToast("Drop Sthal par pahunch gaye! Bhugtan lein.")
         }
-    }
-
-    fun completeDriverTripAndCollectPayment() {
-        val earnedFare = _uiState.value.currentDriverRequest?.estimatedFare ?: 52
-        _uiState.update { current ->
-            current.copy(
-                driverTripPhase = DriverTripPhase.NONE,
-                currentDriverRequest = null,
-                driverOtpInput = "",
-                driverDuty = current.driverDuty.copy(
-                    earningsToday = current.driverDuty.earningsToday + earnedFare,
-                    ridesToday = current.driverDuty.ridesToday + 1
-                )
-            )
-        }
-        showToast("₹$earnedFare Prapt Hue! Badhai ho, ride poori hui.")
-        simulateIncomingDriverRequest()
     }
 
     fun setSearchExpanded(expanded: Boolean) {

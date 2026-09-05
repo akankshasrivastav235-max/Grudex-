@@ -1,28 +1,56 @@
-name: Build APK
-on: [push]
+name: Build Production AAB
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
 jobs:
   build:
+    name: Build Grudex Release AAB
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v3
 
-      - name: Create debug keystore everywhere
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Decode Release Keystore from GitHub Secret
         run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=US"
-          cp debug.keystore app/debug.keystore || true
-          mkdir -p Grudex-/app || true
-          cp debug.keystore Grudex-/debug.keystore || true
-          cp debug.keystore Grudex-/app/debug.keystore || true
-          cp debug.keystore./app/build.gradle/../debug.keystore || true
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+            echo "Release keystore decoded successfully."
+          else
+            echo "KEYSTORE_BASE64 secret is missing! Please configure GitHub Secrets."
+            exit 1
+          fi
 
-      - run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build Release Bundle (AAB)
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew :app:bundleRelease --no-daemon --stacktrace
+          else
+            gradle :app:bundleRelease --no-daemon --stacktrace
+          fi
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Grudex Production AAB
+        uses: actions/upload-artifact@v4
         with:
-          name: Grudex-APK
-          path: "**/build/outputs/apk/debug/app-debug.apk"
+          name: Grudex-Production-AAB
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+

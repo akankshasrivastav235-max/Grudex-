@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Grudex"
+rootProject.name = "Grudex Driver"
 
 include(":app")

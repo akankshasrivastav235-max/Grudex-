@@ -45,6 +45,8 @@ import com.example.model.LocationItem
 import com.example.ui.components.RatingDialog
 import com.example.ui.components.SosDialog
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.DriverHomeScreen
+import com.example.ui.screens.DriverLoginScreen
 import com.example.ui.screens.DriverModeScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.KirayaSettingScreen
@@ -115,17 +117,32 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 } else if (uiState.isDriverMode) {
-                    // Driver App Mode
-                    DriverModeScreen(
-                        uiState = uiState,
-                        onToggleDuty = { viewModel.toggleDriverDuty() },
-                        onAcceptRide = { viewModel.acceptDriverRide() },
-                        onDeclineRide = { viewModel.declineDriverRide() },
-                        onOtpChange = { viewModel.updateDriverOtpInput(it) },
-                        onVerifyOtpAndStart = { viewModel.verifyDriverOtpAndStartRide() },
-                        onCompleteTripAndCollect = { viewModel.completeDriverTripAndCollectPayment() },
-                        onSwitchToPassenger = { viewModel.toggleDriverMode() }
-                    )
+                    // Grudex Driver App Mode
+                    if (!uiState.isDriverLoggedIn) {
+                        // Screen 1: Driver Login - Phone number login
+                        DriverLoginScreen(
+                            onLoginSuccess = { phone, name, vehicleType, vehicleNumber ->
+                                viewModel.driverLogin(phone, name, vehicleType, vehicleNumber)
+                            },
+                            onSwitchToCustomerApp = {
+                                viewModel.setDriverMode(false)
+                            }
+                        )
+                    } else {
+                        // Screen 2: Home Screen - Online/Offline switch, Map, Firebase Bookings, Big Popup, Start Ride
+                        DriverHomeScreen(
+                            uiState = uiState,
+                            onToggleDuty = { viewModel.toggleDriverDuty() },
+                            onAcceptBooking = { viewModel.acceptDriverRide() },
+                            onRejectBooking = { viewModel.declineDriverRide() },
+                            onStartRide = { viewModel.startDriverRide() },
+                            onCompleteRide = { viewModel.completeDriverTripAndCollectPayment() },
+                            onDismissCompletedDialog = { viewModel.dismissRideCompletedDialog() },
+                            onTestBooking = { viewModel.triggerTestFirebaseBooking() },
+                            onSwitchToPassenger = { viewModel.setDriverMode(false) },
+                            onLogout = { viewModel.driverLogout() }
+                        )
+                    }
                 } else {
                     // Passenger App Mode with Bottom Navigation
                     Scaffold(
@@ -266,7 +283,8 @@ class MainActivity : ComponentActivity() {
                                         onShopSelected = { viewModel.selectShop(it) },
                                         onDismissSelectedShop = { viewModel.dismissSelectedShop() },
                                         onBookRideToShop = { viewModel.bookRideToShop(it) },
-                                        onOpenKirayaSettings = { viewModel.openKirayaSettings() }
+                                        onOpenKirayaSettings = { viewModel.openKirayaSettings() },
+                                        onSwitchToDriverMode = { viewModel.setDriverMode(true) }
                                     )
 
                                     MainTab.PARIVAR -> ParivarTrackingScreen(
@@ -299,7 +317,8 @@ class MainActivity : ComponentActivity() {
                                         onSwitchToDriverMode = { viewModel.toggleDriverMode() },
                                         onAddMoneyToWallet = { viewModel.addMoneyToWallet(it) },
                                         onLogout = { viewModel.logout() },
-                                        onOpenKirayaSettings = { viewModel.openKirayaSettings() }
+                                        onOpenKirayaSettings = { viewModel.openKirayaSettings() },
+                                        onTestRatingPopup = { viewModel.triggerCompletedRideForRating() }
                                     )
                                 }
                             }
@@ -319,11 +338,13 @@ class MainActivity : ComponentActivity() {
                 // Rating Dialog after Ride
                 if (uiState.showRatingDialog) {
                     RatingDialog(
-                        driverName = uiState.lastCompletedRide?.driver?.name ?: "Ramesh Kumar",
-                        fare = uiState.lastCompletedRide?.vehicle?.fare ?: 35,
+                        bookingId = uiState.lastCompletedBookingId,
+                        driverId = uiState.lastCompletedDriverId,
+                        driverName = uiState.lastCompletedDriverName.ifBlank { uiState.lastCompletedRide?.driver?.name ?: "Vikram Singh Sarthi" },
+                        fare = if (uiState.lastCompletedFare > 0) uiState.lastCompletedFare else (uiState.lastCompletedRide?.vehicle?.fare ?: 45),
                         onDismiss = { viewModel.dismissRating() },
-                        onSubmit = { rating, feedback ->
-                            viewModel.submitRating(rating, feedback)
+                        onSubmit = { rating, comment ->
+                            viewModel.submitRating(rating, comment)
                         }
                     )
                 }

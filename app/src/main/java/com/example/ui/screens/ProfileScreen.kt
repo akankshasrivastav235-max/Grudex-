@@ -65,7 +65,8 @@ fun ProfileScreen(
     onSwitchToDriverMode: () -> Unit,
     onAddMoneyToWallet: (Int) -> Unit,
     onLogout: () -> Unit,
-    onOpenKirayaSettings: () -> Unit = {}
+    onOpenKirayaSettings: () -> Unit = {},
+    onTestRatingPopup: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -262,16 +263,42 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.width(14.dp))
 
                         Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (uiState.isDriverLoggedIn) "Captain Driver Profile" else "Driver Banein (Captain)",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = GrudexBlack
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = GrudexBlack
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Star,
+                                            contentDescription = null,
+                                            tint = GrudexYellow,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        Text(
+                                            text = "${uiState.driverAverageRating}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = GrudexYellow
+                                        )
+                                    }
+                                }
+                            }
                             Text(
-                                text = "Driver Banein (Captain)",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = GrudexBlack
-                            )
-                            Text(
-                                text = "Apni Bike se rozana ₹1200 tak kamayein",
+                                text = "${uiState.driverName} • ${uiState.driverTotalRatingsCount} Reviews",
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = GrudexDark
                             )
                         }
@@ -283,6 +310,76 @@ fun ProfileScreen(
                         tint = GrudexBlack,
                         modifier = Modifier.size(24.dp)
                     )
+                }
+            }
+        }
+
+        // Test Live Rating Feature Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clickable { onTestRatingPopup() }
+                    .testTag("test_rating_popup_banner")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color(0xFFFFF4D4), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = null,
+                                tint = GrudexBlack,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Text(
+                                text = "Apni Ride Ko Rate Karein (Popup)",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GrudexBlack
+                            )
+                            Text(
+                                text = "Tap karke Rating Popup kholein aur test karein",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = GrudexYellow
+                    ) {
+                        Text(
+                            text = "Rate Now",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GrudexBlack,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
         }
