@@ -1,56 +1,17 @@
-name: Build Production AAB
-
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
+name: Build APK
+on: [push]
 jobs:
   build:
-    name: Build Grudex Release AAB
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Decode Release Keystore from GitHub Secret
-        run: |
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
-            echo "Release keystore decoded successfully."
-          else
-            echo "KEYSTORE_BASE64 secret is missing! Please configure GitHub Secrets."
-            exit 1
-          fi
-
-      - name: Build Release Bundle (AAB)
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew :app:bundleRelease --no-daemon --stacktrace
-          else
-            gradle :app:bundleRelease --no-daemon --stacktrace
-          fi
-
-      - name: Upload Grudex Production AAB
-        uses: actions/upload-artifact@v4
+      - uses: gradle/actions/setup-gradle@v3
+      - run: ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
         with:
-          name: Grudex-Production-AAB
-          path: app/build/outputs/bundle/release/app-release.aab
-          if-no-files-found: error
-
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-
